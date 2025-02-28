@@ -19,7 +19,7 @@ wheels/
 *.egg-info/
 .installed.cfg
 *.egg
-
+*command_log.json
 # Virtual Environment
 venv/
 ENV/
