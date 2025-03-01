@@ -17,7 +17,7 @@ piboat/
 ├── main.py             # Entry point
 ├── device/             # Device-related components
 │   ├── __init__.py
-│   ├── device.py       # Main SimulatedDevice class
+│   ├── device.py       # Main BoatDevice class
 │   ├── telemetry.py    # Telemetry generation
 │   └── commands.py     # Command handling
 ├── webrtc/             # WebRTC-related components
@@ -67,32 +67,32 @@ piboat/
    pip install -r requirements.txt
    ```
 
-## Running the Simulated Device
+## Running the Boat Device
 
-The project includes a simulated boat device for development and testing:
+To run the autonomous boat control system:
 
 1. Make sure you have all dependencies installed
-2. Run the simulated device:
+2. Run the boat device:
    ```
-   ./run_simulated_device.py
+   ./run_boat_device.py
    ```
    
    Or alternatively:
    ```
-   python run_simulated_device.py
+   python run_boat_device.py
    ```
 
 ### Configuration
 
-You can configure the simulated device by setting environment variables:
+You can configure the boat device by setting environment variables:
 
 - `WS_SERVER_URL`: The WebSocket server URL (default: `ws://192.168.1.227:8000/ws/device/{device_id}`)
-- `DEVICE_ID`: The device ID to use (default: `simulated-boat-1`)
+- `DEVICE_ID`: The device ID to use (default: `boat-1`)
 - `TELEMETRY_INTERVAL`: How often to send telemetry data in seconds (default: `1.0`)
 
 Example:
 ```
-DEVICE_ID=my-test-boat WS_SERVER_URL="ws://myserver.com:8000/ws/device/{device_id}" ./run_simulated_device.py
+DEVICE_ID=my-test-boat WS_SERVER_URL="ws://myserver.com:8000/ws/device/{device_id}" ./run_boat_device.py
 ```
 
 ## Usage

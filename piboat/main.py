@@ -4,11 +4,11 @@ import os
 import signal
 
 from piboat.config import DEVICE_ID, WS_SERVER_URL
-from piboat.device.device import SimulatedDevice
+from piboat.device.device import BoatDevice
 from piboat.utils.logging_setup import setup_logging, log_library_versions
 
 # Set up logging
-logger = setup_logging("SimulatedDevice", "simulated_device.log")
+logger = setup_logging("BoatDevice", "boat_device.log")
 
 # Log library versions for debugging
 log_library_versions(logger)
@@ -21,13 +21,13 @@ def signal_handler():
     shutdown_event.set()
 
 async def main():
-    # Create and run the simulated device
-    device = SimulatedDevice(
+    # Create and run the boat device
+    device = BoatDevice(
         device_id=DEVICE_ID,
         server_url=WS_SERVER_URL
     )
     
-    logger.info(f"Starting simulated device: {DEVICE_ID}")
+    logger.info(f"Starting boat device: {DEVICE_ID}")
     logger.info(f"WebSocket server: {WS_SERVER_URL.format(device_id=DEVICE_ID)}")
     
     # Create the device task
@@ -47,7 +47,7 @@ async def main():
         except asyncio.CancelledError:
             pass
     
-    logger.info("Simulation ended")
+    logger.info("Device stopped")
 
 if __name__ == "__main__":
     # Set up signal handlers
@@ -57,7 +57,7 @@ if __name__ == "__main__":
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-        print("Simulation stopped by user")
+        print("Device stopped by user")
     except Exception as e:
-        logger.error(f"Error running simulation: {str(e)}")
+        logger.error(f"Error running device: {str(e)}")
         sys.exit(1) 

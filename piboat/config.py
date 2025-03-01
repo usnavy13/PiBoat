@@ -2,7 +2,7 @@ import os
 
 # Server Configuration
 WS_SERVER_URL = "ws://192.168.1.227:8000/ws/device/{device_id}"
-DEVICE_ID = "simulated-boat-1"
+DEVICE_ID = "boat-1"
 
 # Telemetry Configuration
 TELEMETRY_INTERVAL = 1.0  # Send telemetry every 1 second

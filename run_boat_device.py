@@ -38,7 +38,7 @@ def main_with_signals():
             return_exceptions=True
         ))
     except Exception as e:
-        print(f"Error running simulation: {str(e)}")
+        print(f"Error running device: {str(e)}")
         sys.exit(1)
     finally:
         loop.close()
@@ -47,7 +47,7 @@ if __name__ == "__main__":
     try:
         main_with_signals()
     except KeyboardInterrupt:
-        print("Simulation stopped by user")
+        print("Device stopped by user")
     except Exception as e:
-        print(f"Error running simulation: {str(e)}")
+        print(f"Error running device: {str(e)}")
         sys.exit(1) 

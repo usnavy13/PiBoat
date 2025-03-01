@@ -122,7 +122,7 @@ class TestPatternVideoTrack(VideoStreamTrack):
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         cv2.putText(
             img, 
-            f"Simulated Boat - {timestamp}", 
+            f"PiBoat - {timestamp}", 
             (20, 40), 
             cv2.FONT_HERSHEY_SIMPLEX, 
             0.8, 

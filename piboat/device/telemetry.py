@@ -7,10 +7,11 @@ logger = logging.getLogger("Telemetry")
 
 class TelemetryGenerator:
     """
-    Generates simulated telemetry data for the boat.
+    Generates telemetry data for the boat.
+    This class currently uses generated data but can be modified to use real sensors.
     """
     def __init__(self):
-        # Initial random position in San Francisco Bay
+        # Initial position in San Francisco Bay
         self.latitude = 37.7749 + (random.random() - 0.5) * 0.05
         self.longitude = -122.4194 + (random.random() - 0.5) * 0.05
         self.heading = random.random() * 360  # 0-360 degrees
@@ -24,17 +25,16 @@ class TelemetryGenerator:
         logger.info(f"Initial position: {self.latitude}, {self.longitude}")
     
     def update_position(self):
-        """Update the simulated boat position based on current heading and speed."""
+        """Update the boat position based on current heading and speed."""
         # Update position based on heading and speed
-        # Simplified movement model - in reality would need proper geodesic calculations
-        # This is just for simulation purposes
+        # Note: This will be replaced with real GPS data in the future
         lat_change = self.speed * 0.0001 * math.cos(math.radians(self.heading))
         lon_change = self.speed * 0.0001 * math.sin(math.radians(self.heading))
         
         self.latitude += lat_change
         self.longitude += lon_change
         
-        # Randomly adjust heading and speed occasionally
+        # Adjust heading and speed occasionally
         if random.random() < 0.1:  # 10% chance each update
             self.heading += (random.random() - 0.5) * 10  # +/- 5 degrees
             self.heading %= 360  # Keep in 0-360 range
@@ -43,8 +43,8 @@ class TelemetryGenerator:
             self.speed += (random.random() - 0.5)  # +/- 0.5 knots
             self.speed = max(0, min(10, self.speed))  # Clamp between 0-10 knots
         
-        # Simulate battery drain
-        self.battery -= 0.01  # Very slow drain for simulation
+        # Battery drain
+        self.battery -= 0.01  # Very slow drain 
         self.battery = max(0, self.battery)  # Don't go below 0
     
     def generate_telemetry_data(self):
@@ -54,7 +54,7 @@ class TelemetryGenerator:
         Returns:
             dict: Telemetry data
         """
-        # Update simulated position
+        # Update position
         self.update_position()
         
         # Create telemetry data
@@ -74,8 +74,8 @@ class TelemetryGenerator:
                 "status": "autonomous_navigation",
                 "battery": {
                     "percentage": self.battery,
-                    "voltage": 12.0 + (self.battery - 50) * 0.04,  # Simulate voltage drop
-                    "current": 2.0 + random.random(),  # Simulate current draw
+                    "voltage": 12.0 + (self.battery - 50) * 0.04,  # Voltage drop
+                    "current": 2.0 + random.random(),  # Current draw
                     "level": self.battery  # Add level field for web client
                 },
                 "system": {

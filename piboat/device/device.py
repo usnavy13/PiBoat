@@ -9,11 +9,11 @@ from piboat.device.telemetry import TelemetryGenerator
 from piboat.device.commands import CommandHandler
 from piboat.webrtc.webrtc_handler import WebRTCHandler
 
-logger = logging.getLogger("SimulatedDevice")
+logger = logging.getLogger("BoatDevice")
 
-class SimulatedDevice:
+class BoatDevice:
     """
-    Simulated autonomous boat device that connects to the relay server,
+    Autonomous boat device that connects to the relay server,
     sends telemetry data, and streams video via WebRTC.
     """
     def __init__(self, device_id, server_url):
@@ -25,7 +25,7 @@ class SimulatedDevice:
         # Initialize telemetry generator
         self.telemetry = TelemetryGenerator()
         
-        logger.info(f"Initialized simulated device {device_id}")
+        logger.info(f"Initialized boat device {device_id}")
     
     async def connect(self):
         """Connect to the WebSocket server."""
