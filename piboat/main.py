@@ -21,7 +21,7 @@ def signal_handler():
     shutdown_event.set()
 
 async def main():
-    # Create and run the boat device
+    # Create the boat device
     device = BoatDevice(
         device_id=DEVICE_ID,
         server_url=WS_SERVER_URL
@@ -30,14 +30,22 @@ async def main():
     logger.info(f"Starting boat device: {DEVICE_ID}")
     logger.info(f"WebSocket server: {WS_SERVER_URL.format(device_id=DEVICE_ID)}")
     
-    # Create the device task
+    # Create the device task - it will handle reconnections internally
     device_task = asyncio.create_task(device.run())
     
-    # Wait for shutdown event or device task completion
+    # Wait for either the shutdown event or the device task to complete
     done, pending = await asyncio.wait(
         [device_task, shutdown_event.wait()], 
         return_when=asyncio.FIRST_COMPLETED
     )
+    
+    # If device_task completed on its own (should be rare), log it
+    if device_task in done:
+        try:
+            result = device_task.result()
+            logger.info(f"Device task completed with result: {result}")
+        except Exception as e:
+            logger.error(f"Device task failed with error: {str(e)}")
     
     # Cancel remaining tasks
     for task in pending:

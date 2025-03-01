@@ -16,6 +16,10 @@ def main_with_signals():
     
     # Import after path setup
     from piboat.main import main
+    from piboat.utils.logging_setup import setup_logging
+    
+    # Set up logging for the runner
+    logger = setup_logging("BoatRunner", "boat_device.log")
     
     # Create shutdown event
     loop = asyncio.new_event_loop()
@@ -28,6 +32,7 @@ def main_with_signals():
     
     # Run main and shutdown handler concurrently
     try:
+        logger.info("Starting boat device with automatic reconnection")
         main_task = loop.create_task(main())
         shutdown_task = loop.create_task(shutdown_handler(signal_event))
         
@@ -38,10 +43,11 @@ def main_with_signals():
             return_exceptions=True
         ))
     except Exception as e:
-        print(f"Error running device: {str(e)}")
+        logger.error(f"Error running device: {str(e)}")
         sys.exit(1)
     finally:
         loop.close()
+        logger.info("Boat device runner stopped")
 
 if __name__ == "__main__":
     try:

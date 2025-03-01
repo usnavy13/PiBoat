@@ -7,3 +7,5 @@ pathlib
 ujson
 setuptools
 python-dotenv
+pyserial
+pynmea2
