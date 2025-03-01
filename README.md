@@ -6,6 +6,29 @@ An autonomous boat system built with Python and running on a Raspberry Pi.
 
 This project aims to develop an autonomous boat capable of navigating waterways independently using a Raspberry Pi as the main controller. The boat will use various sensors for navigation, obstacle avoidance, and data collection.
 
+## Project Structure
+
+The project is organized into the following components:
+
+```
+piboat/
+├── __init__.py         # Package init
+├── config.py           # Configuration settings
+├── main.py             # Entry point
+├── device/             # Device-related components
+│   ├── __init__.py
+│   ├── device.py       # Main SimulatedDevice class
+│   ├── telemetry.py    # Telemetry generation
+│   └── commands.py     # Command handling
+├── webrtc/             # WebRTC-related components
+│   ├── __init__.py
+│   ├── video.py        # Video streaming
+│   └── webrtc_handler.py # WebRTC connection management
+└── utils/              # Utility functions
+    ├── __init__.py
+    └── logging_setup.py # Logging configuration
+```
+
 ## Hardware Requirements
 
 - Raspberry Pi (3B+ or 4 recommended)
@@ -17,13 +40,60 @@ This project aims to develop an autonomous boat capable of navigating waterways 
 
 ## Software Dependencies
 
-- Python 3.x
-- Required Python libraries (to be documented)
-- Raspberry Pi OS
+- Python 3.7+
+- Required Python libraries (see requirements.txt):
+  - websockets
+  - aiortc
+  - aiohttp
+  - opencv-python
+  - numpy
 
 ## Setup Instructions
 
-Instructions for setting up the hardware and software will be added as the project progresses.
+1. Clone the repository:
+   ```
+   git clone <repository-url>
+   cd PiBoat
+   ```
+
+2. Set up a virtual environment (recommended):
+   ```
+   python -m venv venv
+   source venv/bin/activate  # On Windows: venv\Scripts\activate
+   ```
+
+3. Install dependencies:
+   ```
+   pip install -r requirements.txt
+   ```
+
+## Running the Simulated Device
+
+The project includes a simulated boat device for development and testing:
+
+1. Make sure you have all dependencies installed
+2. Run the simulated device:
+   ```
+   ./run_simulated_device.py
+   ```
+   
+   Or alternatively:
+   ```
+   python run_simulated_device.py
+   ```
+
+### Configuration
+
+You can configure the simulated device by setting environment variables:
+
+- `WS_SERVER_URL`: The WebSocket server URL (default: `ws://192.168.1.227:8000/ws/device/{device_id}`)
+- `DEVICE_ID`: The device ID to use (default: `simulated-boat-1`)
+- `TELEMETRY_INTERVAL`: How often to send telemetry data in seconds (default: `1.0`)
+
+Example:
+```
+DEVICE_ID=my-test-boat WS_SERVER_URL="ws://myserver.com:8000/ws/device/{device_id}" ./run_simulated_device.py
+```
 
 ## Usage
 
