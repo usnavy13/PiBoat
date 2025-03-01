@@ -32,7 +32,7 @@ def main_with_signals():
     
     # Run main and shutdown handler concurrently
     try:
-        logger.info("Starting boat device with automatic reconnection")
+        logger.info("Starting boat device with real GPS data and WebRTC video streaming")
         main_task = loop.create_task(main())
         shutdown_task = loop.create_task(shutdown_handler(signal_event))
         

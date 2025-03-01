@@ -9,29 +9,33 @@ logger = logging.getLogger("Telemetry")
 
 class TelemetryGenerator:
     """
-    Generates telemetry data for the boat.
-    This class uses GPS data when available, falling back to generated data if not.
+    Generates telemetry data for the boat using real GPS data.
     """
     def __init__(self, use_gps=True, gps_port='/dev/ttyACM0'):
-        # Initial position in San Francisco Bay
-        self.latitude = 37.7749 + (random.random() - 0.5) * 0.05
-        self.longitude = -122.4194 + (random.random() - 0.5) * 0.05
-        self.heading = random.random() * 360  # 0-360 degrees
-        self.speed = random.random() * 5  # 0-5 knots
+        # Set initial position to None until we get a valid GPS fix
+        self.latitude = None
+        self.longitude = None
+        self.heading = None
+        self.speed = 0
         self.battery = 100  # Battery percentage
+        self.last_position_update = 0  # Timestamp of last position update
+        
+        # Store previous position for calculating speed and heading
+        self.prev_latitude = None
+        self.prev_longitude = None
+        self.prev_position_timestamp = 0
         
         # For sequence numbering
         self.telemetry_sequence = 0
         
-        # GPS integration
-        self.use_gps = use_gps
+        # GPS integration - always enabled
+        self.use_gps = True  # Force GPS usage to true regardless of parameter
         self.gps = None
         
-        if self.use_gps:
-            self._init_gps(gps_port)
+        # Initialize GPS
+        self._init_gps(gps_port)
         
-        logger.info(f"Initialized telemetry generator")
-        logger.info(f"Initial position: {self.latitude}, {self.longitude}")
+        logger.info(f"Initialized telemetry generator with real GPS data")
     
     def _init_gps(self, port):
         """Initialize the GPS handler."""
@@ -41,48 +45,128 @@ class TelemetryGenerator:
             logger.info(f"GPS handler started on port {port}")
         except Exception as e:
             logger.error(f"Failed to initialize GPS: {str(e)}")
-            self.use_gps = False
+            logger.error(f"Real telemetry data unavailable until GPS is working")
+    
+    def _calculate_distance(self, lat1, lon1, lat2, lon2):
+        """
+        Calculate the distance between two coordinates using the Haversine formula.
+        Returns distance in meters.
+        """
+        # Convert latitude and longitude from degrees to radians
+        lat1_rad = math.radians(lat1)
+        lon1_rad = math.radians(lon1)
+        lat2_rad = math.radians(lat2)
+        lon2_rad = math.radians(lon2)
+        
+        # Haversine formula
+        dlon = lon2_rad - lon1_rad
+        dlat = lat2_rad - lat1_rad
+        a = math.sin(dlat/2)**2 + math.cos(lat1_rad) * math.cos(lat2_rad) * math.sin(dlon/2)**2
+        c = 2 * math.atan2(math.sqrt(a), math.sqrt(1-a))
+        
+        # Earth radius in meters
+        earth_radius = 6371000
+        distance = earth_radius * c
+        
+        return distance
+    
+    def _calculate_heading(self, lat1, lon1, lat2, lon2):
+        """
+        Calculate the heading (course) from point 1 to point 2.
+        Returns heading in degrees (0-360).
+        """
+        # Convert latitude and longitude from degrees to radians
+        lat1_rad = math.radians(lat1)
+        lon1_rad = math.radians(lon1)
+        lat2_rad = math.radians(lat2)
+        lon2_rad = math.radians(lon2)
+        
+        # Calculate heading
+        dlon = lon2_rad - lon1_rad
+        y = math.sin(dlon) * math.cos(lat2_rad)
+        x = math.cos(lat1_rad) * math.sin(lat2_rad) - math.sin(lat1_rad) * math.cos(lat2_rad) * math.cos(dlon)
+        heading_rad = math.atan2(y, x)
+        
+        # Convert to degrees and normalize to 0-360
+        heading_deg = math.degrees(heading_rad)
+        heading_deg = (heading_deg + 360) % 360
+        
+        return heading_deg
     
     def update_position(self):
         """
-        Update the boat position based on GPS data if available,
-        otherwise use simulated movement.
+        Update the boat position based on GPS data if available.
+        Keeps the last known position if no new GPS data is available.
+        Also calculates speed and heading based on position changes.
         """
-        if self.use_gps and self.gps:
+        if self.gps:
             gps_data = self.gps.get_gps_data()
+            current_time = time.time()
             
             # Update position if we have valid GPS data
             if gps_data['has_fix'] and gps_data['latitude'] is not None and gps_data['longitude'] is not None:
+                # Store previous position before updating to new one
+                if self.latitude is not None and self.longitude is not None:
+                    self.prev_latitude = self.latitude
+                    self.prev_longitude = self.longitude
+                    self.prev_position_timestamp = self.last_position_update
+                
+                # Update current position
                 self.latitude = gps_data['latitude']
                 self.longitude = gps_data['longitude']
-                logger.debug(f"Updated position from GPS: {self.latitude}, {self.longitude}")
+                self.last_position_update = current_time
                 
-                # Update speed and heading if available
-                if gps_data['speed_knots'] is not None:
-                    self.speed = gps_data['speed_knots']
-                if gps_data['course'] is not None:
-                    self.heading = gps_data['course']
-                return
-            else:
-                logger.debug("No GPS fix available, using simulated movement")
+                # Calculate speed and heading if we have previous position
+                if self.prev_latitude is not None and self.prev_longitude is not None:
+                    # Time elapsed in seconds
+                    time_elapsed = current_time - self.prev_position_timestamp
+                    
+                    if time_elapsed > 0:
+                        # Calculate distance in meters
+                        distance = self._calculate_distance(
+                            self.prev_latitude, self.prev_longitude,
+                            self.latitude, self.longitude
+                        )
+                        
+                        # Calculate speed in meters per second, then convert to knots
+                        # 1 meter/second = 1.94384 knots
+                        speed_mps = distance / time_elapsed
+                        speed_knots = speed_mps * 1.94384
+                        
+                        # Apply some smoothing to avoid jumps
+                        alpha = 0.3  # Smoothing factor (0-1)
+                        self.speed = (alpha * speed_knots) + ((1 - alpha) * self.speed)
+                        
+                        # Calculate heading only if we moved a meaningful distance
+                        if distance > 1.0:  # More than 1 meter of movement
+                            new_heading = self._calculate_heading(
+                                self.prev_latitude, self.prev_longitude,
+                                self.latitude, self.longitude
+                            )
+                            
+                            # Apply smoothing to heading as well
+                            if self.heading is None:
+                                self.heading = new_heading
+                            else:
+                                # Special handling for crossing 0/360 boundary
+                                if abs(new_heading - self.heading) > 180:
+                                    if new_heading > self.heading:
+                                        self.heading += 360
+                                    else:
+                                        new_heading += 360
+                                        
+                                self.heading = (alpha * new_heading) + ((1 - alpha) * self.heading)
+                                self.heading = self.heading % 360
+                
+                logger.debug(f"Updated position from GPS: {self.latitude}, {self.longitude}")
+                logger.debug(f"Calculated speed: {self.speed:.2f} knots, heading: {self.heading:.1f}°")
+                
+            elif time.time() - self.last_position_update > 60:  # Log a warning if no position update for 60 seconds
+                logger.warning(f"No GPS fix received for {int(time.time() - self.last_position_update)} seconds")
+        else:
+            logger.warning("GPS handler not initialized, position data unavailable")
         
-        # Fallback to simulated movement if no GPS or no GPS fix
-        lat_change = self.speed * 0.0001 * math.cos(math.radians(self.heading))
-        lon_change = self.speed * 0.0001 * math.sin(math.radians(self.heading))
-        
-        self.latitude += lat_change
-        self.longitude += lon_change
-        
-        # Adjust heading and speed occasionally
-        if random.random() < 0.1:  # 10% chance each update
-            self.heading += (random.random() - 0.5) * 10  # +/- 5 degrees
-            self.heading %= 360  # Keep in 0-360 range
-            
-        if random.random() < 0.05:  # 5% chance each update
-            self.speed += (random.random() - 0.5)  # +/- 0.5 knots
-            self.speed = max(0, min(10, self.speed))  # Clamp between 0-10 knots
-        
-        # Battery drain
+        # Battery drain - keep this as real battery monitoring will be added later
         self.battery -= 0.01  # Very slow drain 
         self.battery = max(0, self.battery)  # Don't go below 0
     
@@ -99,15 +183,15 @@ class TelemetryGenerator:
             return data
     
     def generate_telemetry_data(self, increment_sequence=False):
-        """Generate telemetry data for the boat."""
+        """Generate telemetry data for the boat from real GPS data."""
         # First update the position
         self.update_position()
         
-        # Get GPS status if available
+        # Get GPS status
         gps_status = {}
-        position_source = "simulation"  # Default to simulation
+        position_source = "unknown"  # Default when no position available
         
-        if self.use_gps and self.gps:
+        if self.gps:
             gps_data = self.gps.get_gps_data()
             
             # Add acquiring_fix status
@@ -137,7 +221,7 @@ class TelemetryGenerator:
             'position': {
                 'latitude': self.latitude,
                 'longitude': self.longitude,
-                'source': position_source  # Add source information to position data
+                'source': position_source
             },
             'navigation': {
                 'heading': self.heading,
@@ -188,7 +272,14 @@ class TelemetryGenerator:
             'data': {
                 'gps': {
                     'latitude': telemetry['position']['latitude'],
-                    'longitude': telemetry['position']['longitude']
+                    'longitude': telemetry['position']['longitude'],
+                    'source': telemetry['position']['source'],
+                    'status': telemetry['status']['gps'].get('status', 'unknown'),
+                    'satellites': telemetry['status']['gps'].get('satellites', None),
+                    'fix_quality': telemetry['status']['gps'].get('fix_quality', None),
+                    'has_fix': telemetry['status']['gps'].get('has_fix', False),
+                    'acquiring_fix': telemetry['status']['gps'].get('acquiring_fix', False),
+                    'altitude': telemetry['status']['gps'].get('altitude', None)
                 },
                 'heading': telemetry['navigation']['heading'],
                 'speed': telemetry['navigation']['speed'],
@@ -210,6 +301,6 @@ class TelemetryGenerator:
     
     def shutdown(self):
         """Cleanup resources when shutting down."""
-        if self.use_gps and self.gps:
+        if self.gps:
             self.gps.stop()
             logger.info("GPS handler stopped") 

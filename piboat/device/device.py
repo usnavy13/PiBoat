@@ -16,7 +16,7 @@ class BoatDevice:
     Autonomous boat device that connects to the relay server,
     sends telemetry data, and streams video via WebRTC.
     """
-    def __init__(self, device_id, server_url, use_gps=True, gps_port='/dev/ttyACM0'):
+    def __init__(self, device_id, server_url, gps_port='/dev/ttyACM0'):
         self.device_id = device_id
         self.server_url = server_url.format(device_id=device_id)
         self.websocket = None
@@ -24,8 +24,8 @@ class BoatDevice:
         self.reconnect_interval = 5  # Initial reconnect interval in seconds
         self.max_reconnect_interval = 60  # Maximum reconnect interval
         
-        # Initialize telemetry generator with GPS support
-        self.telemetry = TelemetryGenerator(use_gps=use_gps, gps_port=gps_port)
+        # Initialize telemetry generator with real GPS data
+        self.telemetry = TelemetryGenerator(gps_port=gps_port)
         
         logger.info(f"Initialized boat device {device_id}")
     
