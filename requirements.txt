@@ -6,3 +6,4 @@ av # For video frame handling
 pathlib
 ujson
 setuptools
+python-dotenv
