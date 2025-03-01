@@ -2,7 +2,9 @@ import json
 import logging
 from aiortc import RTCPeerConnection, RTCSessionDescription
 
-from piboat.webrtc.video import TestPatternVideoTrack
+from piboat.webrtc.video import WebcamVideoTrack
+from piboat.webrtc.webcam_utils import get_best_webcam_device
+from piboat.config import VIDEO_WIDTH, VIDEO_HEIGHT, VIDEO_FPS
 
 logger = logging.getLogger("WebRTCHandler")
 
@@ -109,10 +111,35 @@ class WebRTCHandler:
         self.peer_connections[client_id] = pc
         logger.info(f"Created peer connection for client {client_id}")
         
-        # Set up the video track - use the test pattern
-        video_track = TestPatternVideoTrack()
-        pc.addTrack(video_track)
-        logger.info(f"Initialized video stream with {video_track.width}x{video_track.height} resolution at {video_track._fps}fps")
+        # Set up the video track - use the webcam
+        try:
+            # Get the best webcam device ID
+            device_id = get_best_webcam_device(VIDEO_WIDTH, VIDEO_HEIGHT)
+            logger.info(f"Using webcam device ID: {device_id}")
+            
+            # Initialize the video track with the selected device
+            video_track = WebcamVideoTrack(device_id=device_id)
+            pc.addTrack(video_track)
+            logger.info(f"Initialized video stream with {video_track.width}x{video_track.height} resolution at {video_track._fps}fps")
+        except Exception as e:
+            logger.error(f"Error initializing webcam: {str(e)}")
+            # Send error to client
+            error_response = {
+                "type": "webrtc",
+                "subtype": "error",
+                "boatId": self.device_id,
+                "clientId": client_id,
+                "error": "webcam_initialization_failed",
+                "message": f"Failed to initialize webcam: {str(e)}"
+            }
+            await self.websocket.send(json.dumps(error_response))
+            
+            # Clean up and return
+            if client_id in self.peer_connections:
+                await self.peer_connections[client_id].close()
+                del self.peer_connections[client_id]
+                logger.info(f"Closed connection with client {client_id} due to webcam initialization error")
+            return
         
         # Set up ICE candidate handling
         @pc.on("icecandidate")
@@ -127,7 +154,6 @@ class WebRTCHandler:
             
         try:
             # Check codec compatibility first
-            video_track = TestPatternVideoTrack()
             compatible, compatibility_message = video_track.get_codec_compatibility(sdp)
             logger.info(f"Codec compatibility check: {compatibility_message}")
             
@@ -226,10 +252,35 @@ class WebRTCHandler:
             self.peer_connections[client_id] = pc
             logger.info(f"Created peer connection for client {client_id}")
             
-            # Set up the video track
-            video_track = TestPatternVideoTrack()
-            pc.addTrack(video_track)
-            logger.info(f"Initialized video stream with {video_track.width}x{video_track.height} resolution at {video_track._fps}fps")
+            # Set up the video track with best available webcam
+            try:
+                # Get the best webcam device ID
+                device_id = get_best_webcam_device(VIDEO_WIDTH, VIDEO_HEIGHT)
+                logger.info(f"Using webcam device ID: {device_id}")
+                
+                # Initialize the video track with the selected device
+                video_track = WebcamVideoTrack(device_id=device_id)
+                pc.addTrack(video_track)
+                logger.info(f"Initialized video stream with {video_track.width}x{video_track.height} resolution at {video_track._fps}fps")
+            except Exception as e:
+                logger.error(f"Error initializing webcam: {str(e)}")
+                # Send error to client
+                error_response = {
+                    "type": "webrtc",
+                    "subtype": "error",
+                    "boatId": self.device_id,
+                    "clientId": client_id,
+                    "error": "webcam_initialization_failed",
+                    "message": f"Failed to initialize webcam: {str(e)}"
+                }
+                await self.websocket.send(json.dumps(error_response))
+                
+                # Clean up and return
+                if client_id in self.peer_connections:
+                    await self.peer_connections[client_id].close()
+                    del self.peer_connections[client_id]
+                    logger.info(f"Closed connection with client {client_id} due to webcam initialization error")
+                return
             
             # Set up ICE candidate handling
             @pc.on("icecandidate")
