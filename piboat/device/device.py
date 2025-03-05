@@ -235,22 +235,19 @@ class BoatDevice:
                 await asyncio.sleep(1)
     
     async def shutdown(self):
-        """Cleanup and shut down the boat device completely."""
-        logger.info("Shutting down boat device")
+        """Shutdown the boat device and clean up resources."""
+        logger.info("Shutting down boat device...")
         self.running = False
         
-        # Shutdown telemetry (will also stop GPS if active)
-        self.telemetry.shutdown()
-        
-        # Shutdown WebRTC if initialized
+        # Shutdown video streaming
         if hasattr(self, 'webrtc_handler'):
             await self.webrtc_handler.shutdown()
         
-        # Close WebSocket connection
-        if self.websocket is not None:
-            try:
-                await self.websocket.close()
-            except Exception as e:
-                logger.warning(f"Error closing websocket: {str(e)}")
+        # Cleanup telemetry resources
+        self.telemetry.shutdown()
         
-        logger.info("Boat device shut down completed") 
+        # Close WebSocket connection
+        if self.websocket and self.websocket.open:
+            await self.websocket.close()
+            
+        logger.info("Boat device shutdown completed") 

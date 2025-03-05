@@ -4,6 +4,7 @@ import time
 import logging
 import decimal  # Add import for decimal module
 from piboat.device.gps_handler import GPSHandler
+from piboat.device.compass_handler import CompassHandler
 
 logger = logging.getLogger("Telemetry")
 
@@ -11,7 +12,7 @@ class TelemetryGenerator:
     """
     Generates telemetry data for the boat using real GPS data.
     """
-    def __init__(self, use_gps=True, gps_port='/dev/ttyACM0'):
+    def __init__(self, gps_port='/dev/ttyACM0'):
         # Set initial position to None until we get a valid GPS fix
         self.latitude = None
         self.longitude = None
@@ -28,14 +29,15 @@ class TelemetryGenerator:
         # For sequence numbering
         self.telemetry_sequence = 0
         
-        # GPS integration - always enabled
-        self.use_gps = True  # Force GPS usage to true regardless of parameter
-        self.gps = None
+        # Initialize GPS - always required
+        self.gps = self._init_gps(gps_port)
         
-        # Initialize GPS
-        self._init_gps(gps_port)
+        # Initialize compass - always required for heading data
+        self.compass = self._init_compass()
+        if self.compass is None:
+            logger.warning("Compass initialization failed. Heading data will not be available!")
         
-        logger.info(f"Initialized telemetry generator with real GPS data")
+        logger.info("Initialized telemetry generator with real GPS data")
     
     def _init_gps(self, port):
         """Initialize the GPS handler."""
@@ -43,9 +45,28 @@ class TelemetryGenerator:
             self.gps = GPSHandler(port=port)
             self.gps.start()
             logger.info(f"GPS handler started on port {port}")
+            return self.gps
         except Exception as e:
             logger.error(f"Failed to initialize GPS: {str(e)}")
             logger.error(f"Real telemetry data unavailable until GPS is working")
+            return None
+    
+    def _init_compass(self):
+        """Initialize the compass handler."""
+        try:
+            compass = CompassHandler()
+            success = compass.start()
+            if success:
+                logger.info("Compass initialized successfully")
+                # You can set calibration if needed
+                # compass.set_calibration(offset_x=0, offset_y=0, declination=0)
+                return compass
+            else:
+                logger.error("Failed to initialize compass. No heading data will be available!")
+                return None
+        except Exception as e:
+            logger.error(f"Error initializing compass: {str(e)}")
+            return None
     
     def _calculate_distance(self, lat1, lon1, lat2, lon2):
         """
@@ -97,8 +118,33 @@ class TelemetryGenerator:
         """
         Update the boat position based on GPS data if available.
         Keeps the last known position if no new GPS data is available.
-        Also calculates speed and heading based on position changes.
+        Also calculates speed based on position changes.
+        Uses ONLY compass for heading, never GPS.
         """
+        # Update compass heading if available
+        if self.compass and self.compass.connected:
+            compass_heading = self.compass.get_heading()
+            
+            if self.heading is None:
+                self.heading = compass_heading
+                logger.debug(f"Initial compass heading: {self.heading:.1f}°")
+            else:
+                # Apply smoothing to compass heading
+                alpha = 0.3  # Smoothing factor (0-1)
+                
+                # Special handling for crossing 0/360 boundary
+                if abs(compass_heading - self.heading) > 180:
+                    if compass_heading > self.heading:
+                        self.heading += 360
+                    else:
+                        compass_heading += 360
+                        
+                self.heading = (alpha * compass_heading) + ((1 - alpha) * self.heading)
+                self.heading = self.heading % 360
+                
+                logger.debug(f"Updated compass heading: {self.heading:.1f}°")
+        
+        # Update GPS position
         if self.gps:
             gps_data = self.gps.get_gps_data()
             current_time = time.time()
@@ -116,7 +162,7 @@ class TelemetryGenerator:
                 self.longitude = gps_data['longitude']
                 self.last_position_update = current_time
                 
-                # Calculate speed and heading if we have previous position
+                # Calculate speed if we have previous position
                 if self.prev_latitude is not None and self.prev_longitude is not None:
                     # Time elapsed in seconds
                     time_elapsed = current_time - self.prev_position_timestamp
@@ -136,33 +182,10 @@ class TelemetryGenerator:
                         # Apply some smoothing to avoid jumps
                         alpha = 0.3  # Smoothing factor (0-1)
                         self.speed = (alpha * speed_knots) + ((1 - alpha) * self.speed)
-                        
-                        # Calculate heading only if we moved a meaningful distance
-                        if distance > 1.0:  # More than 1 meter of movement
-                            new_heading = self._calculate_heading(
-                                self.prev_latitude, self.prev_longitude,
-                                self.latitude, self.longitude
-                            )
-                            
-                            # Apply smoothing to heading as well
-                            if self.heading is None:
-                                self.heading = new_heading
-                            else:
-                                # Special handling for crossing 0/360 boundary
-                                if abs(new_heading - self.heading) > 180:
-                                    if new_heading > self.heading:
-                                        self.heading += 360
-                                    else:
-                                        new_heading += 360
-                                        
-                                self.heading = (alpha * new_heading) + ((1 - alpha) * self.heading)
-                                self.heading = self.heading % 360
                 
-                logger.debug(f"Updated position from GPS: {self.latitude}, {self.longitude}")
-                logger.debug(f"Calculated speed: {self.speed:.2f} knots, heading: {self.heading:.1f}°")
-                
-            elif time.time() - self.last_position_update > 60:  # Log a warning if no position update for 60 seconds
-                logger.warning(f"No GPS fix received for {int(time.time() - self.last_position_update)} seconds")
+                logger.debug(f"Updated GPS position: {self.latitude:.6f}, {self.longitude:.6f}")
+            else:
+                logger.debug("No valid GPS position available")
         else:
             logger.warning("GPS handler not initialized, position data unavailable")
         
@@ -300,7 +323,11 @@ class TelemetryGenerator:
         }
     
     def shutdown(self):
-        """Cleanup resources when shutting down."""
+        """Clean up resources before shutting down."""
         if self.gps:
             self.gps.stop()
-            logger.info("GPS handler stopped") 
+            logger.info("GPS handler stopped")
+            
+        if self.compass:
+            self.compass.stop()
+            logger.info("Compass handler stopped") 

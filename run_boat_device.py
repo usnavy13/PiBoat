@@ -3,55 +3,47 @@
 import os
 import sys
 import asyncio
-import signal
 
-async def shutdown_handler(signal_event):
-    """Handle shutdown signals by waiting for the event to be set."""
-    await signal_event.wait()
+async def run_device():
+    """Run the boat device directly."""
+    # Import only after path is setup in main()
+    from piboat.config import DEVICE_ID, WS_SERVER_URL
+    from piboat.device.device import BoatDevice
+    
+    # Create the boat device with compass enabled
+    device = BoatDevice(
+        device_id=DEVICE_ID,
+        server_url=WS_SERVER_URL
+    )
+    
+    # Run the device and wait for it to complete
+    await device.run()
 
-def main_with_signals():
-    """Set up signal handlers and run the main coroutine properly."""
+def main():
+    """Run the main coroutine."""
     # Add the current directory to the path
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
     
     # Import after path setup
-    from piboat.main import main
     from piboat.utils.logging_setup import setup_logging
     
     # Set up logging for the runner
     logger = setup_logging("BoatRunner", "boat_device.log")
     
-    # Create shutdown event
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    signal_event = asyncio.Event()
+    logger.info("Starting boat device with compass enabled")
     
-    # Set up signal handlers properly for asyncio
-    for sig in (signal.SIGINT, signal.SIGTERM):
-        loop.add_signal_handler(sig, lambda: signal_event.set())
-    
-    # Run main and shutdown handler concurrently
     try:
-        logger.info("Starting boat device with real GPS data and WebRTC video streaming")
-        main_task = loop.create_task(main())
-        shutdown_task = loop.create_task(shutdown_handler(signal_event))
-        
-        # Wait for either main to complete or shutdown to be triggered
-        loop.run_until_complete(asyncio.gather(
-            main_task, 
-            shutdown_task,
-            return_exceptions=True
-        ))
+        # Use asyncio.run to properly handle the coroutine
+        asyncio.run(run_device())
     except Exception as e:
         logger.error(f"Error running device: {str(e)}")
         sys.exit(1)
     finally:
-        loop.close()
         logger.info("Boat device runner stopped")
 
 if __name__ == "__main__":
     try:
-        main_with_signals()
+        main()
     except KeyboardInterrupt:
         print("Device stopped by user")
     except Exception as e:

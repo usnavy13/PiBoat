@@ -9,3 +9,4 @@ setuptools
 python-dotenv
 pyserial
 pynmea2
+smbus2
