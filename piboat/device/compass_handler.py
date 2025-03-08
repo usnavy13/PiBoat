@@ -48,10 +48,29 @@ class CompassHandler:
             # Initialize I2C bus
             self.bus = smbus.SMBus(self.bus_num)
             
-            # Check chip ID
-            chip_id = self.bus.read_byte_data(BMM150_ADDR, BMM150_CHIP_ID_REG)
-            if chip_id != BMM150_CHIP_ID:
-                logger.warning(f"Unexpected BMM150 chip ID: {chip_id:#x}, expected {BMM150_CHIP_ID:#x}")
+            # Check chip ID - with retry logic to handle potential I2C instability
+            retry_count = 0
+            max_retries = 3
+            chip_id = None
+            
+            while retry_count < max_retries:
+                try:
+                    chip_id = self.bus.read_byte_data(BMM150_ADDR, BMM150_CHIP_ID_REG)
+                    logger.info(f"Read chip ID: {chip_id:#x} (attempt {retry_count+1})")
+                    break
+                except Exception as e:
+                    retry_count += 1
+                    logger.warning(f"Failed to read chip ID (attempt {retry_count}): {str(e)}")
+                    time.sleep(0.5)  # Wait before retry
+            
+            # If we couldn't read the chip ID after all retries, fail
+            if chip_id is None:
+                logger.error("Failed to read BMM150 chip ID after multiple attempts")
+                return False
+                
+            # Accept either 0x32 (standard) or 0x00 (variant) 
+            if chip_id != 0x32 and chip_id != 0x00:
+                logger.warning(f"Unexpected BMM150 chip ID: {chip_id:#x}, expected either 0x32 or 0x00")
                 return False
             
             logger.info(f"BMM150 compass found with chip ID: {chip_id:#x}")
@@ -103,11 +122,27 @@ class CompassHandler:
     
     def _read_compass_data(self):
         """Thread function to continuously read compass data."""
+        last_chip_id_check = 0
+        chip_id_check_interval = 60  # Check chip ID every 60 seconds
+        
         while self.running:
             try:
                 if not self.connected:
                     time.sleep(1)
                     continue
+                
+                # Periodically verify chip ID to detect if it changes
+                current_time = time.time()
+                if current_time - last_chip_id_check > chip_id_check_interval:
+                    try:
+                        chip_id = self.bus.read_byte_data(BMM150_ADDR, BMM150_CHIP_ID_REG)
+                        logger.debug(f"Periodic chip ID check: {chip_id:#x}")
+                        if chip_id != 0x32 and chip_id != 0x00:
+                            logger.warning(f"Chip ID changed during operation to {chip_id:#x}")
+                    except Exception as e:
+                        logger.warning(f"Failed to check chip ID during operation: {str(e)}")
+                    
+                    last_chip_id_check = current_time
                 
                 # Read the raw data
                 x_lsb = self.bus.read_byte_data(BMM150_ADDR, BMM150_DATA_X_LSB)

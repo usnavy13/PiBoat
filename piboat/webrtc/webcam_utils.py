@@ -45,6 +45,20 @@ class WebcamDetector:
             # Try to open the device
             cap = cv2.VideoCapture(device_id)
             if not cap.isOpened():
+                # Check if the error might be because the device is busy/already in use
+                if os.path.exists(device_path):
+                    # Try with a different API backend to test if it's really a camera
+                    for backend in [cv2.CAP_V4L2, cv2.CAP_V4L]:
+                        test_cap = cv2.VideoCapture(device_id, backend)
+                        if test_cap.isOpened():
+                            test_cap.release()
+                            return {
+                                'path': device_path,
+                                'id': device_id,
+                                'status': 'Busy',
+                                'error': 'Device is likely already in use'
+                            }
+                        
                 return {
                     'path': device_path,
                     'id': device_id,
@@ -91,27 +105,31 @@ class WebcamDetector:
             }
     
     @staticmethod
-    def find_working_devices(stop_after_first=False, start_with_device=0):
+    def find_working_devices(stop_after_first=False, start_with_device=0, max_devices=None, check_busy=True):
         """
         Find all working video devices.
         
         Args:
             stop_after_first: If True, stop testing after finding the first working device.
             start_with_device: Start testing with this device ID (useful to prioritize known devices).
+            max_devices: Maximum number of devices to check before giving up (None = check all)
+            check_busy: If True, consider 'Busy' devices as potentially valid and return them
         
         Returns:
-            List of working device IDs
+            List of working device IDs and a list of busy device IDs
         """
         logger.info("Detecting video devices...")
         devices = WebcamDetector.list_v4l_devices()
         
         if not devices:
             logger.warning("No video devices found")
-            return []
+            return [], []
         
         logger.info(f"Found {len(devices)} video device(s)")
         
         working_devices = []
+        busy_devices = []
+        devices_checked = 0
         
         # If start_with_device is specified and exists, test it first
         device_zero_path = f'/dev/video{start_with_device}'
@@ -120,6 +138,12 @@ class WebcamDetector:
             devices.insert(0, device_zero_path)
         
         for device_path in devices:
+            # Limit the number of devices to check
+            if max_devices is not None and devices_checked >= max_devices:
+                logger.info(f"Reached maximum devices to check ({max_devices}), stopping search.")
+                break
+                
+            devices_checked += 1
             logger.info(f"Testing {device_path}")
             info = WebcamDetector.get_device_info(device_path)
             
@@ -135,9 +159,20 @@ class WebcamDetector:
                 if stop_after_first:
                     logger.info(f"Found first working device, stopping search as requested.")
                     break
+            elif info['status'] == 'Busy' and check_busy:
+                busy_devices.append(info['id'])
+                logger.info(f"Device {info['id']} appears to be busy (possibly already in use)")
+                
+                # If no working device yet and we have a busy one, consider it potentially valid
+                if check_busy and stop_after_first and not working_devices:
+                    logger.info(f"Found busy device and no working devices, considering it as potentially valid.")
+                    break
         
         logger.info(f"Found {len(working_devices)} working device(s): {working_devices}")
-        return working_devices
+        if busy_devices:
+            logger.info(f"Found {len(busy_devices)} busy device(s): {busy_devices}")
+            
+        return working_devices, busy_devices
     
     @staticmethod
     def test_resolution(device_id, width, height):
@@ -183,7 +218,7 @@ class WebcamDetector:
             return False, 0, 0
     
     @staticmethod
-    def find_best_device(target_width, target_height, stop_after_first=True):
+    def find_best_device(target_width, target_height, stop_after_first=True, max_devices=3):
         """
         Find the best working webcam device for the given resolution.
         
@@ -191,12 +226,24 @@ class WebcamDetector:
             target_width: Desired width
             target_height: Desired height
             stop_after_first: If True, stop searching after finding the first working device
+            max_devices: Maximum number of devices to check before giving up
             
         Returns:
             Tuple of (device_id, actual_width, actual_height) or (None, 0, 0) if no device works
         """
         # Find working devices
-        working_devices = WebcamDetector.find_working_devices(stop_after_first=stop_after_first, start_with_device=0)
+        working_devices, busy_devices = WebcamDetector.find_working_devices(
+            stop_after_first=stop_after_first, 
+            start_with_device=0,
+            max_devices=max_devices,
+            check_busy=True
+        )
+        
+        # If no working devices but we have busy ones, it's likely the camera is already in use
+        if not working_devices and busy_devices:
+            logger.warning("No available devices found, but detected busy devices. Camera likely already in use.")
+            # Return the first busy device as it's probably a valid camera just currently in use
+            return busy_devices[0], target_width, target_height
         
         if not working_devices:
             logger.error("No working webcam devices found")
@@ -244,7 +291,13 @@ def get_best_webcam_device(target_width=640, target_height=480):
         The device ID of the best webcam or 0 if none found
     """
     try:
-        device_id, _, _ = WebcamDetector.find_best_device(target_width, target_height, stop_after_first=True)
+        # Only check a maximum of 3 devices to prevent long search times
+        device_id, _, _ = WebcamDetector.find_best_device(
+            target_width, 
+            target_height, 
+            stop_after_first=True,
+            max_devices=3
+        )
         return 0 if device_id is None else device_id
     except Exception as e:
         logger.error(f"Error finding best webcam device: {e}")

@@ -118,7 +118,7 @@ class TelemetryGenerator:
         """
         Update the boat position based on GPS data if available.
         Keeps the last known position if no new GPS data is available.
-        Also calculates speed based on position changes.
+        Uses ONLY GPS data for speed.
         Uses ONLY compass for heading, never GPS.
         """
         # Update compass heading if available
@@ -144,44 +144,24 @@ class TelemetryGenerator:
                 
                 logger.debug(f"Updated compass heading: {self.heading:.1f}°")
         
-        # Update GPS position
+        # Update GPS position and speed
         if self.gps:
             gps_data = self.gps.get_gps_data()
             current_time = time.time()
             
             # Update position if we have valid GPS data
             if gps_data['has_fix'] and gps_data['latitude'] is not None and gps_data['longitude'] is not None:
-                # Store previous position before updating to new one
-                if self.latitude is not None and self.longitude is not None:
-                    self.prev_latitude = self.latitude
-                    self.prev_longitude = self.longitude
-                    self.prev_position_timestamp = self.last_position_update
-                
                 # Update current position
                 self.latitude = gps_data['latitude']
                 self.longitude = gps_data['longitude']
                 self.last_position_update = current_time
                 
-                # Calculate speed if we have previous position
-                if self.prev_latitude is not None and self.prev_longitude is not None:
-                    # Time elapsed in seconds
-                    time_elapsed = current_time - self.prev_position_timestamp
-                    
-                    if time_elapsed > 0:
-                        # Calculate distance in meters
-                        distance = self._calculate_distance(
-                            self.prev_latitude, self.prev_longitude,
-                            self.latitude, self.longitude
-                        )
-                        
-                        # Calculate speed in meters per second, then convert to knots
-                        # 1 meter/second = 1.94384 knots
-                        speed_mps = distance / time_elapsed
-                        speed_knots = speed_mps * 1.94384
-                        
-                        # Apply some smoothing to avoid jumps
-                        alpha = 0.3  # Smoothing factor (0-1)
-                        self.speed = (alpha * speed_knots) + ((1 - alpha) * self.speed)
+                # Use GPS speed_knots value directly
+                if gps_data['speed_knots'] is not None:
+                    # Apply some smoothing to avoid jumps
+                    alpha = 0.3  # Smoothing factor (0-1)
+                    self.speed = (alpha * gps_data['speed_knots']) + ((1 - alpha) * self.speed)
+                    logger.debug(f"Updated speed from GPS: {self.speed:.2f} knots")
                 
                 logger.debug(f"Updated GPS position: {self.latitude:.6f}, {self.longitude:.6f}")
             else:
