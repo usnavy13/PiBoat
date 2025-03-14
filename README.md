@@ -89,10 +89,14 @@ You can configure the boat device by setting environment variables:
 - `WS_SERVER_URL`: The WebSocket server URL (default: `ws://192.168.1.227:8000/ws/device/{device_id}`)
 - `DEVICE_ID`: The device ID to use (default: `boat-1`)
 - `TELEMETRY_INTERVAL`: How often to send telemetry data in seconds (default: `1.0`)
+- `MAX_RUDDER_ANGLE`: Maximum physical rudder angle in degrees (default: `45.0`)
+  - This sets the maximum physical angle the rudder can move in each direction
+  - For example, if set to 45, then a normalized command of -100 will move the rudder to -45 degrees,
+    and a normalized command of 50 will move the rudder to 22.5 degrees
 
 Example:
 ```
-DEVICE_ID=my-test-boat WS_SERVER_URL="ws://myserver.com:8000/ws/device/{device_id}" ./run_boat_device.py
+DEVICE_ID=my-test-boat MAX_RUDDER_ANGLE=60 ./run_boat_device.py
 ```
 
 ## Usage

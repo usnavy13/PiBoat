@@ -239,15 +239,41 @@ class BoatDevice:
         logger.info("Shutting down boat device...")
         self.running = False
         
-        # Shutdown video streaming
-        if hasattr(self, 'webrtc_handler'):
-            await self.webrtc_handler.shutdown()
+        # First, immediately stop the motors before any other shutdown steps
+        # This ensures motors stop even if other shutdown steps fail
+        if hasattr(self, 'command_handler') and hasattr(self.command_handler, 'motor_controller'):
+            try:
+                logger.info("Performing emergency motor stop")
+                self.command_handler.motor_controller.cleanup()
+            except Exception as e:
+                logger.error(f"Failed emergency motor stop: {str(e)}")
         
-        # Cleanup telemetry resources
-        self.telemetry.shutdown()
-        
-        # Close WebSocket connection
-        if self.websocket and self.websocket.open:
-            await self.websocket.close()
+        # Try to shutdown other components with error handling
+        try:
+            # Shutdown video streaming
+            if hasattr(self, 'webrtc_handler'):
+                if hasattr(self.webrtc_handler, 'shutdown'):
+                    try:
+                        await self.webrtc_handler.shutdown()
+                    except Exception as e:
+                        logger.error(f"Error shutting down WebRTC: {str(e)}")
+                else:
+                    logger.warning("WebRTC handler has no shutdown method")
             
-        logger.info("Boat device shutdown completed") 
+            # Cleanup telemetry resources
+            try:
+                self.telemetry.shutdown()
+            except Exception as e:
+                logger.error(f"Error shutting down telemetry: {str(e)}")
+            
+            # Close WebSocket connection
+            if self.websocket and self.websocket.open:
+                try:
+                    await self.websocket.close()
+                except Exception as e:
+                    logger.error(f"Error closing websocket: {str(e)}")
+                    
+        except Exception as e:
+            logger.error(f"Error during shutdown sequence: {str(e)}")
+        finally:
+            logger.info("Boat device shutdown completed") 
