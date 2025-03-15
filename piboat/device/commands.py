@@ -30,6 +30,11 @@ class CommandHandler:
         self.motor_controller = MotorController()
         self.motor_controller_initialized = self.motor_controller.initialize()
         
+        # Share the motor controller with the telemetry system
+        if self.motor_controller_initialized and hasattr(self.telemetry, 'set_motor_controller'):
+            self.telemetry.set_motor_controller(self.motor_controller)
+            logger.info("Motor controller shared with telemetry system")
+        
         if self.motor_controller_initialized:
             logger.info(f"Command handler initialized with motor control (max rudder angle: ±{self.max_rudder_angle}°)")
         else:

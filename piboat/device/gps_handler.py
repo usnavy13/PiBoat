@@ -107,7 +107,11 @@ class GPSHandler:
         with self.lock:
             try:
                 if hasattr(msg, 'timestamp'):
-                    self.timestamp = msg.timestamp
+                    # Convert datetime.time to string to avoid JSON serialization issues
+                    if hasattr(msg.timestamp, 'isoformat'):
+                        self.timestamp = msg.timestamp.isoformat()
+                    else:
+                        self.timestamp = str(msg.timestamp)
                 
                 # GGA message - Fix data
                 if isinstance(msg, pynmea2.GGA):

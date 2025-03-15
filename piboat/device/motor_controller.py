@@ -57,6 +57,7 @@ class MotorController:
         self.thrust_pwm = None
         self.initialized = False
         self.current_thrust = 0  # Keep track of current thrust level
+        self.current_rudder = 0  # Keep track of current rudder position in degrees
     
     def initialize(self):
         """Initialize the PWM hardware for rudder and thrust control"""
@@ -121,6 +122,8 @@ class MotorController:
             
             # Set the PWM duty cycle
             self.rudder_pwm.change_duty_cycle(duty_cycle)
+            # Store current rudder position
+            self.current_rudder = degrees
             logger.info(f"Rudder set to {degrees}° ({'port' if degrees < 0 else 'starboard' if degrees > 0 else 'center'})")
             return True
         except Exception as e:
@@ -249,3 +252,11 @@ class MotorController:
             except Exception as e:
                 logger.error(f"Error during motor controller cleanup: {e}")
                 return False 
+    
+    def get_motor_status(self):
+        """Get current motor controller status"""
+        return {
+            'rudder_position': self.current_rudder,
+            'throttle': self.current_thrust,
+            'initialized': self.initialized
+        } 

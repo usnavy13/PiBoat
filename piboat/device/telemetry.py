@@ -12,7 +12,7 @@ class TelemetryGenerator:
     """
     Generates telemetry data for the boat using real GPS data.
     """
-    def __init__(self, gps_port='/dev/ttyACM0'):
+    def __init__(self, gps_port='/dev/ttyACM0', motor_controller=None):
         # Set initial position to None until we get a valid GPS fix
         self.latitude = None
         self.longitude = None
@@ -28,6 +28,9 @@ class TelemetryGenerator:
         
         # For sequence numbering
         self.telemetry_sequence = 0
+        
+        # Store reference to motor controller
+        self.motor_controller = motor_controller
         
         # Initialize GPS - always required
         self.gps = self._init_gps(gps_port)
@@ -182,6 +185,12 @@ class TelemetryGenerator:
         elif isinstance(data, decimal.Decimal):
             # Convert Decimal to float for JSON serialization
             return float(data)
+        elif hasattr(data, 'isoformat'):  # Handle datetime, date, and time objects
+            # Convert datetime/time objects to ISO format strings
+            return data.isoformat()
+        elif isinstance(data, time.struct_time):
+            # Convert struct_time to ISO format
+            return time.strftime("%Y-%m-%dT%H:%M:%S", data)
         else:
             return data
     
@@ -205,21 +214,34 @@ class TelemetryGenerator:
             if gps_data['has_fix']:
                 position_source = "gps"
                 
+            # Include all GPS values in the status
             gps_status = {
                 'satellites': gps_data['satellites'],
                 'fix_quality': gps_data['fix_quality'],
                 'has_fix': gps_data['has_fix'],
                 'acquiring_fix': acquiring_fix,
                 'altitude': gps_data['altitude'],
+                'speed_knots': gps_data['speed_knots'],
+                'course': gps_data['course'],
+                'gps_timestamp': gps_data['timestamp'],
+                'running': gps_data['running'],
                 'status': 'fix_acquired' if gps_data['has_fix'] else ('acquiring' if acquiring_fix else 'inactive')
             }
+        
+        # Get motor control status if available
+        motor_status = {}
+        if self.motor_controller and hasattr(self.motor_controller, 'get_motor_status'):
+            motor_status = self.motor_controller.get_motor_status()
         
         # Increment sequence number only if requested
         if increment_sequence:
             self.telemetry_sequence += 1
         
+        # Use float timestamp for JSON compatibility
+        current_timestamp = time.time()
+        
         telemetry = {
-            'timestamp': time.time(),
+            'timestamp': current_timestamp,
             'sequence': self.telemetry_sequence,
             'position': {
                 'latitude': self.latitude,
@@ -229,10 +251,13 @@ class TelemetryGenerator:
             'navigation': {
                 'heading': self.heading,
                 'speed': self.speed,
+                'rudder_position': motor_status.get('rudder_position', 0),
+                'throttle': motor_status.get('throttle', 0)
             },
             'status': {
                 'battery': self.battery,
-                'gps': gps_status
+                'gps': gps_status,
+                'motors': motor_status
             }
         }
         
@@ -282,11 +307,17 @@ class TelemetryGenerator:
                     'fix_quality': telemetry['status']['gps'].get('fix_quality', None),
                     'has_fix': telemetry['status']['gps'].get('has_fix', False),
                     'acquiring_fix': telemetry['status']['gps'].get('acquiring_fix', False),
-                    'altitude': telemetry['status']['gps'].get('altitude', None)
+                    'altitude': telemetry['status']['gps'].get('altitude', None),
+                    'speed_knots': telemetry['status']['gps'].get('speed_knots', None),
+                    'course': telemetry['status']['gps'].get('course', None),
+                    'gps_timestamp': telemetry['status']['gps'].get('gps_timestamp', None),
+                    'running': telemetry['status']['gps'].get('running', False)
                 },
                 'heading': telemetry['navigation']['heading'],
                 'speed': telemetry['navigation']['speed'],
-                'battery': telemetry['status']['battery']
+                'battery': telemetry['status']['battery'],
+                'rudder_position': telemetry['navigation']['rudder_position'],
+                'throttle': telemetry['navigation']['throttle']
             }
         }
         
@@ -294,12 +325,22 @@ class TelemetryGenerator:
     
     def get_current_status(self):
         """Get the current status of the boat as a dict."""
+        # Get motor status if available
+        rudder_position = 0
+        throttle = 0
+        if self.motor_controller and hasattr(self.motor_controller, 'get_motor_status'):
+            motor_status = self.motor_controller.get_motor_status()
+            rudder_position = motor_status.get('rudder_position', 0)
+            throttle = motor_status.get('throttle', 0)
+            
         return {
             'latitude': self.latitude,
             'longitude': self.longitude,
             'heading': self.heading,
             'speed': self.speed,
-            'battery': self.battery
+            'battery': self.battery,
+            'rudder_position': rudder_position,
+            'throttle': throttle
         }
     
     def shutdown(self):
@@ -310,4 +351,16 @@ class TelemetryGenerator:
             
         if self.compass:
             self.compass.stop()
-            logger.info("Compass handler stopped") 
+            logger.info("Compass handler stopped")
+    
+    def set_motor_controller(self, motor_controller):
+        """
+        Set the motor controller after TelemetryGenerator has been initialized.
+        This allows an existing motor controller to be shared with the telemetry system.
+        
+        Args:
+            motor_controller: The MotorController instance to use for telemetry
+        """
+        self.motor_controller = motor_controller
+        logger.info("Motor controller attached to telemetry system")
+        return True 
