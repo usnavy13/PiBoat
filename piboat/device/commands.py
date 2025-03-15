@@ -101,10 +101,20 @@ class CommandHandler:
                     message = "Failed to set throttle"
             
             elif command_type == "stop":
-                success = self.motor_controller.stop()
+                # Execute both commands concurrently - the motor controller will handle parallelization
+                rudder_success = self.motor_controller.set_rudder(0)
+                motor_success = self.motor_controller.set_throttle(0, ramp_time=1.0)
+                success = motor_success and rudder_success
                 status = "accepted" if success else "rejected"
                 if not success:
-                    message = "Failed to stop motors"
+                    if not rudder_success:
+                        message = "Failed to center rudder"
+                    elif not motor_success:
+                        message = "Failed to stop motors"
+                    else:
+                        message = "Failed to execute stop command"
+                if success:
+                    logger.info("Stop command executed: motors stopping and rudder centered concurrently")
             
             else:
                 logger.warning(f"Unknown command type: {command_type}")

@@ -2,6 +2,7 @@ import atexit
 from rpi_hardware_pwm import HardwarePWM
 import time
 import logging
+import threading
 
 logger = logging.getLogger("MotorController")
 
@@ -36,6 +37,17 @@ def _emergency_pwm_cleanup():
                 if pwm_instance.pwm_channel == THRUST_CHANNEL:
                     # 7.5% duty cycle = 1.5ms pulse = neutral position
                     pwm_instance.change_duty_cycle(7.5)
+                    print("Emergency cleanup: Thruster set to neutral position")
+                
+                # For rudder PWM, set to center position
+                if pwm_instance.pwm_channel == RUDDER_CHANNEL:
+                    # Calculate center position (0 degrees)
+                    # Assuming 270-degree servo with 2.5% (0.5ms) = -135 degrees and 12.5% (2.5ms) = 135 degrees
+                    # Center is at 7.5% (1.5ms) = 0 degrees
+                    pwm_instance.change_duty_cycle(7.5)
+                    print("Emergency cleanup: Rudder set to center position")
+                    # Small delay to allow servo to reach position
+                    time.sleep(0.2)
                 
                 # Stop the PWM
                 pwm_instance.stop()
@@ -58,6 +70,14 @@ class MotorController:
         self.initialized = False
         self.current_thrust = 0  # Keep track of current thrust level
         self.current_rudder = 0  # Keep track of current rudder position in degrees
+        
+        # Add locks for thread safety
+        self.thrust_lock = threading.Lock()
+        self.rudder_lock = threading.Lock()
+        
+        # Flag to signal throttle ramping thread to stop
+        self.throttle_thread_running = False
+        self.throttle_thread = None
     
     def initialize(self):
         """Initialize the PWM hardware for rudder and thrust control"""
@@ -117,14 +137,15 @@ class MotorController:
             return False
         
         try:
-            # Convert degrees to duty cycle
-            duty_cycle = self.degrees_to_duty_cycle(degrees)
-            
-            # Set the PWM duty cycle
-            self.rudder_pwm.change_duty_cycle(duty_cycle)
-            # Store current rudder position
-            self.current_rudder = degrees
-            logger.info(f"Rudder set to {degrees}° ({'port' if degrees < 0 else 'starboard' if degrees > 0 else 'center'})")
+            with self.rudder_lock:
+                # Convert degrees to duty cycle
+                duty_cycle = self.degrees_to_duty_cycle(degrees)
+                
+                # Set the PWM duty cycle
+                self.rudder_pwm.change_duty_cycle(duty_cycle)
+                # Store current rudder position
+                self.current_rudder = degrees
+                logger.info(f"Rudder set to {degrees}° ({'port' if degrees < 0 else 'starboard' if degrees > 0 else 'center'})")
             return True
         except Exception as e:
             logger.error(f"Error setting rudder position: {e}")
@@ -144,6 +165,70 @@ class MotorController:
         
         # Ensure duty cycle is within bounds
         return max(5.0, min(duty_cycle, 10.0))
+    
+    def _throttle_ramp_thread(self, target_speed, ramp_time=1.0, step_size=2.0):
+        """
+        Thread function to handle throttle ramping without blocking
+        """
+        try:
+            with self.thrust_lock:
+                current_speed = self.current_thrust
+                
+            # Check if there's a need to ramp (if speed change is significant)
+            if abs(target_speed - current_speed) <= step_size:
+                with self.thrust_lock:
+                    duty_cycle = self.speed_to_duty_cycle(target_speed)
+                    self.thrust_pwm.change_duty_cycle(duty_cycle)
+                    self.current_thrust = target_speed
+                    logger.info(f"Thrust set to {target_speed}% ({'reverse' if target_speed < 0 else 'forward' if target_speed > 0 else 'stop'})")
+                return
+                
+            # Calculate number of steps needed for ramping
+            speed_diff = target_speed - current_speed
+            num_steps = abs(int(speed_diff / step_size))
+            if num_steps == 0:
+                num_steps = 1
+                
+            # Calculate delay between steps
+            step_delay = ramp_time / num_steps
+            
+            # Determine step direction and size
+            step_direction = 1 if speed_diff > 0 else -1
+            
+            # Perform the ramping
+            logger.info(f"Adjusting thrust from {current_speed}% to {target_speed}%...")
+            
+            for i in range(1, num_steps + 1):
+                # Check if we should exit early
+                if not self.throttle_thread_running:
+                    logger.info("Throttle ramping interrupted")
+                    return
+                    
+                # Calculate intermediate speed
+                if i < num_steps:
+                    intermediate_speed = current_speed + (i * step_size * step_direction)
+                else:
+                    intermediate_speed = target_speed  # Ensure we end exactly at target speed
+                    
+                # Apply the speed
+                with self.thrust_lock:
+                    duty_cycle = self.speed_to_duty_cycle(intermediate_speed)
+                    self.thrust_pwm.change_duty_cycle(duty_cycle)
+                    self.current_thrust = intermediate_speed
+                
+                # Only log progress at 25%, 50%, 75% and completion
+                if i == num_steps or i % max(1, int(num_steps/4)) == 0:
+                    logger.debug(f"  Thrust: {intermediate_speed:.1f}%")
+                
+                # Wait before next step
+                time.sleep(step_delay)
+            
+            logger.info(f"Thrust set to {target_speed}% ({'reverse' if target_speed < 0 else 'forward' if target_speed > 0 else 'stop'})")
+        except Exception as e:
+            logger.error(f"Error in throttle ramp thread: {e}")
+        finally:
+            self.throttle_thread_running = False
+            self.throttle_thread = None
     
     def set_throttle(self, speed, ramp_time=1.0, step_size=2.0):
         """
@@ -166,51 +251,20 @@ class MotorController:
             return False
         
         try:
-            # Check if there's a need to ramp (if speed change is significant)
-            if abs(speed - self.current_thrust) <= step_size:
-                duty_cycle = self.speed_to_duty_cycle(speed)
-                self.thrust_pwm.change_duty_cycle(duty_cycle)
-                self.current_thrust = speed
-                logger.info(f"Thrust set to {speed}% ({'reverse' if speed < 0 else 'forward' if speed > 0 else 'stop'})")
-                return True
-                
-            # Calculate number of steps needed for ramping
-            speed_diff = speed - self.current_thrust
-            num_steps = abs(int(speed_diff / step_size))
-            if num_steps == 0:
-                num_steps = 1
-                
-            # Calculate delay between steps
-            step_delay = ramp_time / num_steps
+            # Stop any existing throttle ramp thread
+            if self.throttle_thread and self.throttle_thread.is_alive():
+                self.throttle_thread_running = False
+                self.throttle_thread.join(timeout=0.5)  # Wait for it to stop, but don't block too long
             
-            # Determine step direction and size
-            step_direction = 1 if speed_diff > 0 else -1
+            # Start new throttle thread
+            self.throttle_thread_running = True
+            self.throttle_thread = threading.Thread(
+                target=self._throttle_ramp_thread,
+                args=(speed, ramp_time, step_size),
+                daemon=True  # Make it a daemon so it doesn't prevent program exit
+            )
+            self.throttle_thread.start()
             
-            # Perform the ramping
-            current = self.current_thrust
-            logger.info(f"Adjusting thrust from {self.current_thrust}% to {speed}%...")
-            
-            for i in range(1, num_steps + 1):
-                # Calculate intermediate speed
-                if i < num_steps:
-                    current = self.current_thrust + (i * step_size * step_direction)
-                else:
-                    current = speed  # Ensure we end exactly at target speed
-                    
-                # Apply the speed
-                duty_cycle = self.speed_to_duty_cycle(current)
-                self.thrust_pwm.change_duty_cycle(duty_cycle)
-                
-                # Only log progress at 25%, 50%, 75% and completion
-                if i == num_steps or i % max(1, int(num_steps/4)) == 0:
-                    logger.debug(f"  Thrust: {current:.1f}%")
-                
-                # Wait before next step
-                time.sleep(step_delay)
-            
-            # Update current thrust
-            self.current_thrust = speed
-            logger.info(f"Thrust set to {speed}% ({'reverse' if speed < 0 else 'forward' if speed > 0 else 'stop'})")
             return True
         except Exception as e:
             logger.error(f"Error setting thrust: {e}")
@@ -224,13 +278,29 @@ class MotorController:
         """Stop PWM and release resources"""
         if self.initialized:
             try:
+                # Stop throttle ramping thread if it's running
+                if self.throttle_thread and self.throttle_thread.is_alive():
+                    self.throttle_thread_running = False
+                    self.throttle_thread.join(timeout=1.0)
+                
                 # Stop thruster immediately (no ramping during emergency stop)
                 if self.thrust_pwm:
                     # Set neutral throttle position directly with no ramping
-                    duty_cycle = self.speed_to_duty_cycle(0)
-                    self.thrust_pwm.change_duty_cycle(duty_cycle)
-                    self.current_thrust = 0
-                    logger.info("Emergency stop: Thruster set to neutral position")
+                    with self.thrust_lock:
+                        duty_cycle = self.speed_to_duty_cycle(0)
+                        self.thrust_pwm.change_duty_cycle(duty_cycle)
+                        self.current_thrust = 0
+                        logger.info("Emergency stop: Thruster set to neutral position")
+                
+                # Set rudder to center position (0 degrees) before stopping PWM
+                if self.rudder_pwm:
+                    with self.rudder_lock:
+                        duty_cycle = self.degrees_to_duty_cycle(0)
+                        self.rudder_pwm.change_duty_cycle(duty_cycle)
+                        self.current_rudder = 0
+                        logger.info("Emergency stop: Rudder set to center position")
+                        # Small delay to allow servo to reach position
+                        time.sleep(0.2)
                 
                 # Stop PWM
                 if self.rudder_pwm:
