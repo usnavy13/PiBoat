@@ -27,6 +27,20 @@ class BoatDevice:
         # Initialize telemetry generator with real GPS data
         self.telemetry = TelemetryGenerator(gps_port=gps_port)
         
+        # Initialize motor controller once
+        from piboat.device.motor_controller import MotorController
+        self.motor_controller = MotorController()
+        self.motor_controller_initialized = self.motor_controller.initialize()
+        
+        if self.motor_controller_initialized:
+            logger.info("Boat motor control system initialized")
+            # Share the motor controller with the telemetry system
+            if hasattr(self.telemetry, 'set_motor_controller'):
+                self.telemetry.set_motor_controller(self.motor_controller)
+                logger.info("Motor controller attached to telemetry system")
+        else:
+            logger.warning("Failed to initialize motor controller")
+        
         logger.info(f"Initialized boat device {device_id}")
     
     async def connect(self):
@@ -38,7 +52,8 @@ class BoatDevice:
             logger.info("Connected to WebSocket server")
             
             # Once connected, initialize the command and WebRTC handlers
-            self.command_handler = CommandHandler(self.telemetry, self.websocket)
+            # Pass the existing motor controller to CommandHandler
+            self.command_handler = CommandHandler(self.telemetry, self.websocket, self.motor_controller)
             self.webrtc_handler = WebRTCHandler(self.device_id, self.websocket)
             
             self.running = True

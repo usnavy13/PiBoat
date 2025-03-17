@@ -13,32 +13,28 @@ class CommandHandler:
     """
     Command handler that processes control commands and controls the boat hardware.
     """
-    def __init__(self, telemetry_generator, websocket):
+    def __init__(self, telemetry_generator, websocket, motor_controller):
         """
         Initialize the command handler.
         
         Args:
             telemetry_generator: Reference to the telemetry generator
             websocket: WebSocket connection to send responses
+            motor_controller: Existing motor controller instance to use
         """
         self.telemetry = telemetry_generator
         self.websocket = websocket
         self.command_log = []
         self.max_rudder_angle = MAX_RUDDER_ANGLE
         
-        # Initialize the motor controller
-        self.motor_controller = MotorController()
-        self.motor_controller_initialized = self.motor_controller.initialize()
-        
-        # Share the motor controller with the telemetry system
-        if self.motor_controller_initialized and hasattr(self.telemetry, 'set_motor_controller'):
-            self.telemetry.set_motor_controller(self.motor_controller)
-            logger.info("Motor controller shared with telemetry system")
+        # Use the provided motor controller
+        self.motor_controller = motor_controller
+        self.motor_controller_initialized = self.motor_controller is not None
         
         if self.motor_controller_initialized:
             logger.info(f"Command handler initialized with motor control (max rudder angle: ±{self.max_rudder_angle}°)")
         else:
-            logger.warning("Command handler initialized but motor control failed to initialize")
+            logger.warning("Command handler initialized but no motor controller provided")
     
     async def handle_command(self, command):
         """
